@@ -27,6 +27,15 @@ type Process struct {
 	Status string
 }
 
+const (
+	graphWidth  = 76
+	graphHeight = 10
+)
+
+var (
+	cpuUsageHistory []float64
+)
+
 func main() {
 	g, err := gocui.NewGui(gocui.OutputNormal)
 	if err != nil {
@@ -72,6 +81,11 @@ func updateData() {
 		{PID: 456, Name: "nginx", CPU: rand.Float64() * 2.0, Memory: rand.Float64() * 1.5, Status: "Running"},
 		{PID: 789, Name: "db-server", CPU: rand.Float64() * 10.0, Memory: rand.Float64() * 8.0, Status: "Running"},
 	}
+
+	cpuUsageHistory = append(cpuUsageHistory, cpuUsage)
+	if len(cpuUsageHistory) > graphWidth {
+		cpuUsageHistory = cpuUsageHistory[1:]
+	}
 }
 
 func layout(g *gocui.Gui) error {
@@ -108,6 +122,13 @@ func layout(g *gocui.Gui) error {
 		//v.SelFgColor = gocui.ColorBlack
 	}
 
+	if v, err := g.SetView("cpugraph", maxX/2+1, 0, maxX-1, maxY/3-1); err != nil {
+		if err != gocui.ErrUnknownView {
+			return err
+		}
+		v.Title = "CPU history"
+	}
+
 	return nil
 }
 
@@ -133,6 +154,12 @@ func drawDashboard(g *gocui.Gui) {
 		for _, p := range processList {
 			fmt.Fprintf(v, "%-8d %-20s %-8.2f %-8.2f %-10s\n", p.PID, p.Name, p.CPU, p.Memory, p.Status)
 		}
+	}
+
+	if v, err := g.View("cpugraph"); err == nil {
+		v.Clear()
+		out := renderGraph(cpuUsageHistory, graphWidth, graphHeight)
+		fmt.Fprintf(v, "%s\n", out)
 	}
 
 	g.Update(func(g *gocui.Gui) error {
@@ -170,6 +197,35 @@ func colorCode(c gocui.Attribute) int {
 	default:
 		return 0 // White
 	}
+}
+
+func renderGraph(history []float64, width, height int) string {
+	lines := make([]string, height)
+	historyLen := len(history)
+
+	for y := 0; y < height; y++ {
+		thresh := float64(height-y-1) * 100 / float64(height-1)
+		var row strings.Builder
+
+		for x := 0; x < width; x++ {
+
+			histIdx := historyLen - width + x
+			var val float64
+
+			if histIdx >= 0 && histIdx < historyLen {
+				val = history[histIdx]
+			} else {
+				val = 0
+			}
+			if val >= thresh {
+				row.WriteString("█")
+			} else {
+				row.WriteString(" ")
+			}
+		}
+		lines[y] = row.String()
+	}
+	return strings.Join(lines, "\n")
 }
 
 func quit(g *gocui.Gui, v *gocui.View) error {
